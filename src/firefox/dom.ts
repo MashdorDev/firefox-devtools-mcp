@@ -485,7 +485,7 @@ export class DomInteractions {
 
   /**
    * Upload file by UID
-   * Handles hidden file inputs by making them visible
+   * Sets the files of an <input type=file> directly, so no file dialog opens
    */
   async uploadFileByUid(
     context: BrowsingContext.BrowsingContext,
@@ -493,26 +493,15 @@ export class DomInteractions {
     filePath: string
   ): Promise<void> {
     const el = await this.resolveUid(context, uid);
-    // Ensure it's an <input type=file>; if hidden, unhide via JS
-    await this.bidi.callFunction(
+    const isFileInput = await this.bidi.callFunction(
       context,
-      `
-      (element) => {
-        if (element.tagName !== 'INPUT' || element.type !== 'file')
-          throw new Error('uploadFile: element must be <input type=file>');
-        var style = window.getComputedStyle(element);
-        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-          var s = element.style;
-          s.display = 'block'; s.visibility = 'visible'; s.opacity = '1';
-          s.position = 'fixed'; s.left = '0px'; s.top = '0px';
-          s.zIndex = '2147483647';
-        }
-        element.focus();
-      }
-      `,
+      "(element) => element.tagName === 'INPUT' && element.type === 'file'",
       [el]
     );
-    await this.sendKeyActions(context, textKeyActions(filePath));
+    if (!isFileInput) {
+      throw new Error('uploadFile: element must be <input type=file>');
+    }
+    await this.bidi.sendCommand('input.setFiles', { context, element: el, files: [filePath] });
   }
 
   /**

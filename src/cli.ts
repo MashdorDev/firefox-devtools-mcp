@@ -86,6 +86,12 @@ export const cliOptions = {
       'If enabled, ignores errors relative to self-signed and expired certificates. Use with caution.',
     default: (process.env.ACCEPT_INSECURE_CERTS ?? 'false') === 'true',
   },
+  showCursor: {
+    type: 'boolean',
+    description:
+      'Draw a visible cursor in the page that animates to each click, hover and fill, so a person watching can follow the agent.',
+    default: (process.env.SHOW_CURSOR ?? 'false') === 'true',
+  },
   profilePath: {
     type: 'string',
     description: 'Path to Firefox profile directory (optional, for persistent profile)',

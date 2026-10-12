@@ -129,6 +129,7 @@ You can pass flags or environment variables (names on the right):
 - `--firefox-arg` — extra Firefox arguments (repeatable)
 - `--start-url` — open this URL on start (`START_URL`)
 - `--accept-insecure-certs` — ignore TLS errors (`ACCEPT_INSECURE_CERTS=true`)
+- `--show-cursor` — draw a visible cursor that animates to each click, hover and fill, plus a glowing border while the agent acts; hidden in screenshots (`SHOW_CURSOR=true`)
 - `--connect-existing` — attach to an already-running Firefox instead of launching a new one (`CONNECT_EXISTING=true`)
 - `--marionette-port` — Marionette port for connect-existing mode, default 2828 (`MARIONETTE_PORT`)
 - `--pref name=value` — set Firefox preference at startup via `moz:firefoxOptions` (repeatable)

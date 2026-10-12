@@ -117,7 +117,8 @@ export class FirefoxClient {
     this.dom = new DomInteractions(
       this.bidi,
       (context: BrowsingContext.BrowsingContext, uid: string) =>
-        this.snapshot!.resolveUidToElement(context, uid)
+        this.snapshot!.resolveUidToElement(context, uid),
+      { showCursor: this.core.getOptions().showCursor }
     );
 
     this.pages = new PageManagement(

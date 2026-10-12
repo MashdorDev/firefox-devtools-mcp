@@ -5,6 +5,10 @@
 import { Key } from 'selenium-webdriver';
 import type { BrowsingContext, Input, Script } from 'webdriver-bidi-protocol';
 import type { BiDiFacade } from './bidi';
+import { nativeToLocalValue } from '../utils/local-value.js';
+import { CURSOR_MOVE_MS, SET_CURSOR_VISIBILITY_FN, SHOW_CURSOR_FN } from './cursor.js';
+
+const CURSOR_SANDBOX = 'firefox-devtools-mcp-cursor';
 
 /**
  * Key names accepted by press_key. Names are matched case-insensitively.
@@ -154,6 +158,8 @@ function comboKeyActions({ modifiers, key }: KeyCombo): Input.KeySourceAction[] 
 }
 
 export class DomInteractions {
+  private cursorPositions = new Map<BrowsingContext.BrowsingContext, { x: number; y: number }>();
+
   constructor(
     private bidi: BiDiFacade,
     private resolveUid: (
@@ -161,8 +167,66 @@ export class DomInteractions {
       uid: string
     ) => Promise<Script.SharedReference> = () => {
       throw new Error('Not implemented');
-    }
+    },
+    private options: { showCursor?: boolean | undefined } = {}
   ) {}
+
+  /**
+   * Animate the visible cursor overlay to (x, y). No-op unless showCursor is set.
+   * Failures are ignored so that the overlay never blocks the actual input.
+   */
+  private async moveCursor(
+    context: BrowsingContext.BrowsingContext,
+    x: number,
+    y: number,
+    press: boolean
+  ): Promise<void> {
+    if (!this.options.showCursor) {
+      return;
+    }
+    const from = this.cursorPositions.get(context) ?? { x, y };
+    this.cursorPositions.set(context, { x, y });
+    try {
+      await this.bidi.callFunction(
+        context,
+        SHOW_CURSOR_FN,
+        [from.x, from.y, x, y, press, CURSOR_MOVE_MS].map(nativeToLocalValue),
+        CURSOR_SANDBOX
+      );
+    } catch {
+      // Overlay is cosmetic
+    }
+  }
+
+  /**
+   * Run fn with the cursor overlay hidden, so that it does not appear in screenshots.
+   */
+  private async withCursorHidden<T>(
+    context: BrowsingContext.BrowsingContext,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    if (!this.options.showCursor) {
+      return await fn();
+    }
+    const setVisible = async (visible: boolean) => {
+      try {
+        await this.bidi.callFunction(
+          context,
+          SET_CURSOR_VISIBILITY_FN,
+          [nativeToLocalValue(visible)],
+          CURSOR_SANDBOX
+        );
+      } catch {
+        // Overlay is cosmetic
+      }
+    };
+    await setVisible(false);
+    try {
+      return await fn();
+    } finally {
+      await setVisible(true);
+    }
+  }
 
   /**
    * Wait until an element is visible, ignoring failures.
@@ -251,6 +315,7 @@ export class DomInteractions {
     const el = await this.resolveUid(context, uid);
     await this.waitForVisible(context, el);
     const { x, y } = await this.scrollAndGetInViewCenterPoint(context, el);
+    await this.moveCursor(context, x, y, true);
     const actions: Input.PointerSourceAction[] = [
       { type: 'pointerMove', x, y },
       { type: 'pointerDown', button: 0 },
@@ -270,6 +335,7 @@ export class DomInteractions {
     const el = await this.resolveUid(context, uid);
     await this.waitForVisible(context, el);
     const { x, y } = await this.scrollAndGetInViewCenterPoint(context, el);
+    await this.moveCursor(context, x, y, false);
     await this.sendPointerActions(context, [{ type: 'pointerMove', x, y }]);
   }
 
@@ -282,6 +348,10 @@ export class DomInteractions {
     value: string
   ): Promise<void> {
     const el = await this.resolveUid(context, uid);
+    if (this.options.showCursor) {
+      const { x, y } = await this.scrollAndGetInViewCenterPoint(context, el);
+      await this.moveCursor(context, x, y, true);
+    }
     await this.bidi.callFunction(
       context,
       `
@@ -453,11 +523,13 @@ export class DomInteractions {
     context: BrowsingContext.BrowsingContext,
     fullPage = false
   ): Promise<string> {
-    const result = await this.bidi.sendCommand('browsingContext.captureScreenshot', {
-      context,
-      format: { type: 'png' },
-      origin: fullPage ? 'document' : 'viewport',
-    });
+    const result = await this.withCursorHidden(context, () =>
+      this.bidi.sendCommand('browsingContext.captureScreenshot', {
+        context,
+        format: { type: 'png' },
+        origin: fullPage ? 'document' : 'viewport',
+      })
+    );
     return result.data;
   }
 
@@ -476,11 +548,13 @@ export class DomInteractions {
     await this.scrollAndGetInViewCenterPoint(context, el);
 
     // Take screenshot of element (WebDriver BiDi automatically crops to element bounds)
-    const result = await this.bidi.sendCommand('browsingContext.captureScreenshot', {
-      context,
-      format: { type: 'png' },
-      clip: { type: 'element', element: el },
-    });
+    const result = await this.withCursorHidden(context, () =>
+      this.bidi.sendCommand('browsingContext.captureScreenshot', {
+        context,
+        format: { type: 'png' },
+        clip: { type: 'element', element: el },
+      })
+    );
     return result.data;
   }
 }

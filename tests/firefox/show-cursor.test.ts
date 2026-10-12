@@ -6,7 +6,12 @@ import { describe, it, expect, vi } from 'vitest';
 import type { BrowsingContext, Script } from 'webdriver-bidi-protocol';
 import { DomInteractions } from '../../src/firefox/dom.js';
 import type { BiDiFacade } from '../../src/firefox/bidi.js';
-import { SET_CURSOR_VISIBILITY_FN, SHOW_CURSOR_FN } from '../../src/firefox/cursor.js';
+import {
+  OVERLAY_PRELOAD_FN,
+  REMOVE_OVERLAY_FN,
+  SET_CURSOR_VISIBILITY_FN,
+  SHOW_CURSOR_FN,
+} from '../../src/firefox/cursor.js';
 
 const CONTEXT = 'context-1' as BrowsingContext.BrowsingContext;
 const ELEMENT = { sharedId: 'el-1' } as Script.SharedReference;
@@ -15,6 +20,12 @@ function createBidi() {
   const sendCommand = vi.fn(async (method: string) => {
     if (method === 'browsingContext.captureScreenshot') {
       return { data: 'png-data' };
+    }
+    if (method === 'script.addPreloadScript') {
+      return { script: 'preload-1' };
+    }
+    if (method === 'browsingContext.getTree') {
+      return { contexts: [{ context: 'tab-1' }, { context: 'tab-2' }] };
     }
     return {};
   });
@@ -95,5 +106,46 @@ describe('DomInteractions cursor overlay', () => {
     const [captureOrder = 0] = sendCommand.mock.invocationCallOrder;
     expect(hideOrder).toBeLessThan(captureOrder);
     expect(showOrder).toBeGreaterThan(captureOrder);
+  });
+
+  it('should register the overlay for new documents and draw it in open tabs', async () => {
+    const { bidi, sendCommand, callFunction } = createBidi();
+    const dom = new DomInteractions(bidi, async () => ELEMENT, { showCursor: true });
+
+    await dom.installOverlay();
+    await dom.installOverlay();
+
+    const preloads = sendCommand.mock.calls.filter(([m]) => m === 'script.addPreloadScript');
+    expect(preloads).toHaveLength(1);
+    expect(sendCommand).toHaveBeenCalledWith('script.addPreloadScript', {
+      functionDeclaration: OVERLAY_PRELOAD_FN,
+      sandbox: expect.any(String),
+    });
+    expect(callFunction.mock.calls.map(([ctx]) => ctx)).toEqual(['tab-1', 'tab-2']);
+  });
+
+  it('should remove the preload script and the overlay from open tabs', async () => {
+    const { bidi, sendCommand, callFunction } = createBidi();
+    const dom = new DomInteractions(bidi, async () => ELEMENT, { showCursor: true });
+
+    await dom.installOverlay();
+    callFunction.mockClear();
+    await dom.removeOverlay();
+
+    expect(sendCommand).toHaveBeenCalledWith('script.removePreloadScript', {
+      script: 'preload-1',
+    });
+    expect(callFunction.mock.calls.filter(([, fn]) => fn === REMOVE_OVERLAY_FN)).toHaveLength(2);
+  });
+
+  it('should not touch the page when showCursor is off', async () => {
+    const { bidi, sendCommand, callFunction } = createBidi();
+    const dom = new DomInteractions(bidi, async () => ELEMENT);
+
+    await dom.installOverlay();
+    await dom.removeOverlay();
+
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(callFunction).not.toHaveBeenCalled();
   });
 });

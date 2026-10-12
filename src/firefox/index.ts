@@ -120,6 +120,7 @@ export class FirefoxClient {
         this.snapshot!.resolveUidToElement(context, uid),
       { showCursor: this.core.getOptions().showCursor }
     );
+    await this.dom.installOverlay();
 
     this.pages = new PageManagement(
       driver,
@@ -560,6 +561,7 @@ export class FirefoxClient {
   // ============================================================================
 
   async close(): Promise<void> {
+    await this.dom?.removeOverlay();
     try {
       await this.core.close();
     } catch (error) {

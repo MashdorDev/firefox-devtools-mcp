@@ -6,7 +6,14 @@ import { Key } from 'selenium-webdriver';
 import type { BrowsingContext, Input, Script } from 'webdriver-bidi-protocol';
 import type { BiDiFacade } from './bidi';
 import { nativeToLocalValue } from '../utils/local-value.js';
-import { CURSOR_MOVE_MS, SET_CURSOR_VISIBILITY_FN, SHOW_CURSOR_FN } from './cursor.js';
+import {
+  CURSOR_MOVE_MS,
+  INSTALL_OVERLAY_FN,
+  OVERLAY_PRELOAD_FN,
+  REMOVE_OVERLAY_FN,
+  SET_CURSOR_VISIBILITY_FN,
+  SHOW_CURSOR_FN,
+} from './cursor.js';
 
 const CURSOR_SANDBOX = 'firefox-devtools-mcp-cursor';
 
@@ -170,6 +177,67 @@ export class DomInteractions {
     },
     private options: { showCursor?: boolean | undefined } = {}
   ) {}
+
+  private overlayPreloadScript: string | null = null;
+
+  /**
+   * Show the overlay in every open tab and in every document loaded afterwards.
+   * No-op unless showCursor is set.
+   */
+  async installOverlay(): Promise<void> {
+    if (!this.options.showCursor || this.overlayPreloadScript) {
+      return;
+    }
+    try {
+      const { script } = await this.bidi.sendCommand('script.addPreloadScript', {
+        functionDeclaration: OVERLAY_PRELOAD_FN,
+        sandbox: CURSOR_SANDBOX,
+      });
+      this.overlayPreloadScript = script;
+    } catch {
+      // Overlay is cosmetic
+    }
+    await this.runInAllTabs(INSTALL_OVERLAY_FN);
+  }
+
+  /**
+   * Remove the overlay from every open tab, so that a browser the server only
+   * attached to is left as it was found.
+   */
+  async removeOverlay(): Promise<void> {
+    if (!this.options.showCursor) {
+      return;
+    }
+    if (this.overlayPreloadScript) {
+      try {
+        await this.bidi.sendCommand('script.removePreloadScript', {
+          script: this.overlayPreloadScript,
+        });
+      } catch {
+        // Overlay is cosmetic
+      }
+      this.overlayPreloadScript = null;
+    }
+    await this.runInAllTabs(REMOVE_OVERLAY_FN);
+    this.cursorPositions.clear();
+  }
+
+  private async runInAllTabs(functionDeclaration: string): Promise<void> {
+    try {
+      const { contexts } = await this.bidi.sendCommand('browsingContext.getTree', {
+        maxDepth: 0,
+      });
+      await Promise.all(
+        contexts.map((ctx) =>
+          this.bidi
+            .callFunction(ctx.context, functionDeclaration, [], CURSOR_SANDBOX)
+            .catch(() => undefined)
+        )
+      );
+    } catch {
+      // Overlay is cosmetic
+    }
+  }
 
   /**
    * Animate the visible cursor overlay to (x, y). No-op unless showCursor is set.

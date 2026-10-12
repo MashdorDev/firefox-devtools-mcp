@@ -12,7 +12,7 @@ import {
   fixtureUrl,
 } from '../helpers/firefox.js';
 import type { FirefoxClient } from '@/firefox/index.js';
-import { CURSOR_HOST_ID } from '@/firefox/cursor.js';
+import { CURSOR_HOST_ID, CURSOR_LABEL } from '@/firefox/cursor.js';
 
 describe('Show Cursor Integration Tests', () => {
   let firefox: FirefoxClient;
@@ -24,6 +24,16 @@ describe('Show Cursor Integration Tests', () => {
   afterAll(async () => {
     await closeFirefox(firefox);
   });
+
+  it('should show the overlay on a newly loaded page before any input', async () => {
+    await firefox.navigate(fixtureUrl('simple.html'));
+    await waitForPageLoad();
+
+    const label = await firefox.evaluate(
+      `document.getElementById(${JSON.stringify(CURSOR_HOST_ID)})?.shadowRoot.querySelector('.label')?.textContent`
+    );
+    expect(label).toBe(CURSOR_LABEL);
+  }, 15000);
 
   it('should move the overlay cursor to the clicked element without blocking the click', async () => {
     await firefox.navigate(fixtureUrl('form.html'));

@@ -25,11 +25,9 @@ function installOverlay() {
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = \`
     <style>
-      .glow { position:fixed; inset:0; box-shadow: inset 0 0 0 2px rgba(217,119,87,.9), inset 0 0 22px rgba(217,119,87,.5); animation: pulse 2.4s ease-in-out infinite; }
-      @keyframes pulse { 50% { box-shadow: inset 0 0 0 2px rgba(217,119,87,.6), inset 0 0 12px rgba(217,119,87,.3); } }
+      .glow { position:fixed; inset:0; box-shadow: inset 0 0 0 2px rgba(217,119,87,.9), inset 0 0 22px rgba(217,119,87,.5); }
       .label { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); display:flex; align-items:center; gap:8px; padding:7px 14px; border-radius:999px; background:rgba(28,25,23,.92); color:#fff; font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif; box-shadow: 0 2px 10px rgba(0,0,0,.3); white-space:nowrap; }
-      .dot { width:8px; height:8px; border-radius:50%; background:rgb(217,119,87); animation: blink 1.2s ease-in-out infinite; }
-      @keyframes blink { 50% { opacity:.35; } }
+      .dot { width:8px; height:8px; border-radius:50%; background:rgb(217,119,87); }
       .cursor { position:fixed; left:0; top:0; width:22px; height:22px; opacity:0; will-change:transform; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
       .ripple { position:fixed; width:28px; height:28px; margin:-14px 0 0 -14px; border-radius:50%; border:2px solid rgb(217,119,87); animation: ripple .45s ease-out forwards; }
       @keyframes ripple { from { transform:scale(.3); opacity:1; } to { transform:scale(1.4); opacity:0; } }
@@ -50,11 +48,17 @@ function installOverlay() {
 export const OVERLAY_PRELOAD_FN = `
 () => {
   ${INSTALL_OVERLAY}
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installOverlay, { once: true });
-  } else {
+  if (document.documentElement) {
     installOverlay();
+    return;
   }
+  const observer = new MutationObserver(() => {
+    if (document.documentElement) {
+      observer.disconnect();
+      installOverlay();
+    }
+  });
+  observer.observe(document, { childList: true });
 }
 `;
 

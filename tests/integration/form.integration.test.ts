@@ -71,4 +71,32 @@ describe('Form Interaction Integration Tests', () => {
       firefox.uploadFileByUid(nameInput.uid, join(fixturesPath, 'simple.html'))
     ).rejects.toThrow('<input type=file>');
   }, 15000);
+
+  it('should upload a folder with its structure to a directory input', async () => {
+    await firefox.navigate(fixtureUrl('form.html'));
+    await waitForPageLoad();
+    await firefox.evaluate(`(() => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.webkitdirectory = true;
+      input.id = 'dirInput';
+      input.addEventListener('change', (e) => {
+        window.__picked = [...e.target.files].map((f) => f.webkitRelativePath + ':' + f.size);
+      });
+      document.body.appendChild(input);
+    })()`);
+
+    const dirInput = await waitForElementInSnapshot(
+      firefox,
+      (node) => node.id === 'dirInput',
+      10000
+    );
+    await firefox.uploadFileByUid(dirInput.uid, join(fixturesPath, 'upload-folder'));
+
+    expect(await firefox.evaluate('window.__picked')).toEqual([
+      'upload-folder/a.txt:6',
+      'upload-folder/nested/b.txt:5',
+    ]);
+    expect(await firefox.evaluate(`document.querySelectorAll('input[type=file]').length`)).toBe(2);
+  }, 15000);
 });

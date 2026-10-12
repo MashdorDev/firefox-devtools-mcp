@@ -127,7 +127,8 @@ export const fillFormByUidTool = {
 
 export const uploadFileByUidTool = {
   name: 'upload_file_by_uid',
-  description: 'Upload file to file input by UID.',
+  description:
+    'Upload a file or a whole folder to a file input by UID. A folder keeps its structure, as with a folder picker.',
   annotations: {
     readOnlyHint: false,
   },
@@ -140,7 +141,7 @@ export const uploadFileByUidTool = {
       },
       filePath: {
         type: 'string',
-        description: 'Local file path',
+        description: 'Local file or folder path',
       },
     },
     required: ['uid', 'filePath'],

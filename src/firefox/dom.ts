@@ -2,6 +2,8 @@
  * DOM interactions: evaluate, element lookup, input actions
  */
 
+import { readdir, stat } from 'node:fs/promises';
+import { basename, join, relative, sep } from 'node:path';
 import { Key } from 'selenium-webdriver';
 import type { BrowsingContext, Input, Script } from 'webdriver-bidi-protocol';
 import type { BiDiFacade } from './bidi';
@@ -16,6 +18,47 @@ import {
 } from './cursor.js';
 
 const CURSOR_SANDBOX = 'firefox-devtools-mcp-cursor';
+
+/**
+ * List every file under dir, depth first, sorted by path.
+ */
+async function listFilesRecursive(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listFilesRecursive(full)));
+    } else if (entry.isFile()) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+/**
+ * Moves the files of a helper input onto the target input, giving each file
+ * the webkitRelativePath a folder picker would have produced, then fires the
+ * input and change events a real selection fires.
+ */
+const ATTACH_FOLDER_FILES_FN = `
+(target, helper, relativePaths) => {
+  const files = [...helper.files];
+  helper.remove();
+  if (files.length !== relativePaths.length) {
+    throw new Error('uploadFile: expected ' + relativePaths.length + ' files, got ' + files.length);
+  }
+  const transfer = new DataTransfer();
+  files.forEach((file, i) => {
+    Object.defineProperty(file, 'webkitRelativePath', { value: relativePaths[i], configurable: true });
+    transfer.items.add(file);
+  });
+  target.files = transfer.files;
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+  target.dispatchEvent(new Event('change', { bubbles: true }));
+  return [...target.files].map((file) => file.webkitRelativePath);
+}
+`;
 
 /**
  * Key names accepted by press_key. Names are matched case-insensitively.
@@ -484,8 +527,11 @@ export class DomInteractions {
   }
 
   /**
-   * Upload file by UID
-   * Sets the files of an <input type=file> directly, so no file dialog opens
+   * Upload file or folder by UID
+   * Sets the files of an <input type=file> directly, so no file dialog opens.
+   * A folder is uploaded as every file inside it, each with the
+   * webkitRelativePath a folder picker would give, so that pages which
+   * rebuild the folder tree (for example cloud drives) keep the structure.
    */
   async uploadFileByUid(
     context: BrowsingContext.BrowsingContext,
@@ -501,7 +547,62 @@ export class DomInteractions {
     if (!isFileInput) {
       throw new Error('uploadFile: element must be <input type=file>');
     }
+    if ((await stat(filePath)).isDirectory()) {
+      await this.uploadFolder(context, el, filePath);
+      return;
+    }
     await this.bidi.sendCommand('input.setFiles', { context, element: el, files: [filePath] });
+  }
+
+  /**
+   * Firefox rejects directories in input.setFiles, so the files are set on a
+   * temporary multiple input and moved onto the target in the page.
+   */
+  private async uploadFolder(
+    context: BrowsingContext.BrowsingContext,
+    target: Script.SharedReference,
+    folderPath: string
+  ): Promise<void> {
+    const files = await listFilesRecursive(folderPath);
+    if (files.length === 0) {
+      throw new Error(`uploadFile: folder "${folderPath}" contains no files`);
+    }
+    const root = basename(folderPath);
+    const relativePaths = files.map((file) =>
+      [root, ...relative(folderPath, file).split(sep)].join('/')
+    );
+
+    const helper = await this.bidi.callFunctionRaw(
+      context,
+      `() => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.hidden = true;
+        document.documentElement.appendChild(input);
+        return input;
+      }`,
+      []
+    );
+    if (helper.type !== 'node' || !helper.sharedId) {
+      throw new Error('uploadFile: could not create the helper file input');
+    }
+    const helperRef: Script.SharedReference = { sharedId: helper.sharedId };
+
+    try {
+      await this.bidi.sendCommand('input.setFiles', { context, element: helperRef, files });
+    } catch (error) {
+      await this.bidi.callFunction(context, '(input) => input.remove()', [helperRef]);
+      throw error;
+    }
+    const attached = await this.bidi.callFunction<string[]>(context, ATTACH_FOLDER_FILES_FN, [
+      target,
+      helperRef,
+      nativeToLocalValue(relativePaths),
+    ]);
+    if (JSON.stringify(attached) !== JSON.stringify(relativePaths)) {
+      throw new Error('uploadFile: the page did not keep the folder structure of the files');
+    }
   }
 
   /**

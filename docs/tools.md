@@ -198,12 +198,12 @@ Parameters:
 
 ### `upload_file_by_uid`
 
-Upload file to file input by UID.
+Upload a file or a whole folder to a file input by UID. A folder keeps its structure, as with a folder picker.
 
 Parameters:
 
 - `uid` (string, required) - File input UID from snapshot
-- `filePath` (string, required) - Local file path
+- `filePath` (string, required) - Local file or folder path
 
 ### `press_key`
 
